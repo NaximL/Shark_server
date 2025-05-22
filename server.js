@@ -51,7 +51,7 @@ async function getlesion(username, password) {
       'Sec-CH-UA-Mobile': '?0',
       'Sec-CH-UA-Platform': '"macOS"',
     },
-    redirect: 'manual',
+    redirect: 'follow',
   });
   
 
@@ -115,7 +115,7 @@ async function getprofil(username, password) {
       'Sec-CH-UA-Mobile': '?0',
       'Sec-CH-UA-Platform': '"macOS"',
     },
-    redirect: 'manual',
+    redirect: 'follow',
   });
   
 
@@ -176,7 +176,7 @@ async function gethomework(username, password) {
       'Sec-CH-UA-Mobile': '?0',
       'Sec-CH-UA-Platform': '"macOS"',
     },
-    redirect: 'manual',
+    redirect: 'follow',
   });
   
 
@@ -239,7 +239,7 @@ async function loginAndFetchData(username, password) {
       'Sec-CH-UA-Mobile': '?0',
       'Sec-CH-UA-Platform': '"macOS"',
     },
-    redirect: 'manual',
+    redirect: 'follow',
   });
   
   const protectedPage = await fetchWithCookies('https://app.moiashkola.ua/Analitika', {
