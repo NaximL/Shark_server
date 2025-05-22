@@ -61,6 +61,7 @@ async function getlesion(username, password) {
     }
   });
   const protectedHtml = await protectedPage.text();
+  console.log(protectedHtml)
   const $ = cheerio.load(protectedHtml);
   const results = [];
 
@@ -124,6 +125,7 @@ async function getprofil(username, password) {
     }
   });
   const protectedHtml = await protectedPage.text();
+    console.log(protectedHtml)
   const $ = cheerio.load(protectedHtml);
   const result = [];
   $('h2').each((i, el) => {
@@ -248,6 +250,7 @@ async function loginAndFetchData(username, password) {
 
 
   const protectedHtml = await protectedPage.text();
+    console.log(protectedHtml)
   const $ = cheerio.load(protectedHtml);
   const spans = [];
   $('span').each((i, el) => {
