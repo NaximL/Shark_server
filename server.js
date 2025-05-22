@@ -14,20 +14,40 @@ app.use(express.json());
 const cookieJar = new tough.CookieJar();
 const fetchWithCookies = fetchCookie(fetch, cookieJar);
 
+// === УСТОЙЧИВАЯ АВТОРИЗАЦИЯ ===
 async function loginWithRedirect(username, password) {
-  const loginData = new URLSearchParams({ UserName: username, Password: password });
+  const loginUrl = 'https://app.moiashkola.ua/';
 
-  const loginRes = await fetchWithCookies('https://app.moiashkola.ua/', {
+  // 1. Получаем токен из формы логина
+  const loginPage = await fetchWithCookies(loginUrl, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+  });
+  const loginHtml = await loginPage.text();
+  const $ = cheerio.load(loginHtml);
+
+  const requestVerificationToken = $('input[name="__RequestVerificationToken"]').val();
+  if (!requestVerificationToken) throw new Error('CSRF токен не найден');
+
+  // 2. Отправляем логин POST-запрос
+  const formData = new URLSearchParams({
+    __RequestVerificationToken: requestVerificationToken,
+    UserName: username,
+    Password: password,
+  });
+
+  const loginRes = await fetchWithCookies(loginUrl, {
     method: 'POST',
-    body: loginData.toString(),
+    body: formData,
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       'User-Agent': 'Mozilla/5.0',
+      Referer: loginUrl,
     },
     redirect: 'manual',
   });
 
-  if (loginRes.status === 302 || loginRes.status === 303) {
+  // 3. Переход по редиректу
+  if ([302, 303].includes(loginRes.status)) {
     const location = loginRes.headers.get('location');
     if (location) {
       await fetchWithCookies(`https://app.moiashkola.ua${location}`, {
@@ -35,10 +55,20 @@ async function loginWithRedirect(username, password) {
       });
     }
   }
+
+  // 4. Проверка, вошли ли мы
+  const checkPage = await fetchWithCookies('https://app.moiashkola.ua/', {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+  });
+
+  const checkHtml = await checkPage.text();
+  if (checkHtml.includes('Prisijungti') || checkHtml.includes('Авторизация')) {
+    throw new Error('Неверный логин или пароль');
+  }
 }
 
 // === РОЗКЛАД ===
-async function getlesion(username, password) {
+async function getSchedule(username, password) {
   await loginWithRedirect(username, password);
 
   const page = await fetchWithCookies('https://app.moiashkola.ua/TvarkarascioIrasas/MokinioTvarkarastis', {
@@ -55,8 +85,8 @@ async function getlesion(username, password) {
       const cells = $(row).find('td');
       if (cells.length >= 5) {
         const time = $(cells[2]).text().trim();
-        const urok = $(cells[4]).text().trim();
-        day.push({ urok, time });
+        const subject = $(cells[4]).text().trim();
+        day.push({ subject, time });
       }
     });
     results.push(day);
@@ -66,7 +96,7 @@ async function getlesion(username, password) {
 }
 
 // === ПРОФІЛЬ ===
-async function getprofil(username, password) {
+async function getProfile(username, password) {
   await loginWithRedirect(username, password);
 
   const page = await fetchWithCookies('https://app.moiashkola.ua/Profilis', {
@@ -77,15 +107,16 @@ async function getprofil(username, password) {
   const $ = cheerio.load(html);
   const result = [];
 
-  $('h2, span, i').each((i, el) => {
-    result.push($(el).text().trim());
+  $('h2, span, i').each((_, el) => {
+    const text = $(el).text().trim();
+    if (text) result.push(text);
   });
 
   return result;
 }
 
 // === Д/З ===
-async function gethomework(username, password) {
+async function getHomework(username, password) {
   await loginWithRedirect(username, password);
 
   const baseUrl = 'https://app.moiashkola.ua/odata/NamuDarbaiOData';
@@ -102,12 +133,13 @@ async function gethomework(username, password) {
     headers: { 'User-Agent': 'Mozilla/5.0' },
   });
 
-  const data = await response.text();
-  return JSON.parse(data);
+  if (!response.ok) throw new Error('Не удалось получить домашнее задание');
+
+  return await response.json();
 }
 
 // === АНАЛІТИКА / ОЦІНКИ ===
-async function loginAndFetchData(username, password) {
+async function getGrades(username, password) {
   await loginWithRedirect(username, password);
 
   const page = await fetchWithCookies('https://app.moiashkola.ua/Analitika', {
@@ -116,65 +148,66 @@ async function loginAndFetchData(username, password) {
 
   const html = await page.text();
   const $ = cheerio.load(html);
-  const spans = [];
+  const results = [];
 
-  $('span').each((i, el) => {
-    spans.push($(el).text().trim());
+  $('span').each((_, el) => {
+    const text = $(el).text().trim();
+    if (text) results.push(text);
   });
 
-  return spans;
+  return results;
 }
 
 // === API ===
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Потрібні username та password' });
-    const grades = await loginAndFetchData(username, password);
+    if (!username || !password) return res.status(400).json({ error: 'Требуются username и password' });
+    const grades = await getGrades(username, password);
     res.json(grades);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
 app.post('/api/domash', async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Потрібні username та password' });
-    const data = await gethomework(username, password);
+    if (!username || !password) return res.status(400).json({ error: 'Требуются username и password' });
+    const data = await getHomework(username, password);
     res.json(data);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
 app.post('/api/rozklad', async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Потрібні username та password' });
-    const data = await getlesion(username, password);
+    if (!username || !password) return res.status(400).json({ error: 'Требуются username и password' });
+    const data = await getSchedule(username, password);
     res.json(data);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
 app.post('/api/prof', async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Потрібні username та password' });
-    const data = await getprofil(username, password);
+    if (!username || !password) return res.status(400).json({ error: 'Требуются username и password' });
+    const data = await getProfile(username, password);
     res.json(data);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
 // === СТАРТ СЕРВЕРА ===
 app.listen(PORT, () => {
-  console.log(`server started on port ${PORT}`);
+  console.log(`Server started on port ${PORT}`);
 });
