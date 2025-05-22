@@ -1,8 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import * as cheerio from 'cheerio';
-import fs from 'fs';
-import path from 'path';
 import fetch from 'node-fetch';
 import tough from 'tough-cookie';
 import fetchCookie from 'fetch-cookie';
@@ -10,263 +8,128 @@ import fetchCookie from 'fetch-cookie';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST'], 
-  allowedHeaders: ['Content-Type']
-}));
+app.use(cors({ origin: '*', methods: ['GET', 'POST'], allowedHeaders: ['Content-Type'] }));
 app.use(express.json());
 
 const cookieJar = new tough.CookieJar();
 const fetchWithCookies = fetchCookie(fetch, cookieJar);
 
+async function loginWithRedirect(username, password) {
+  const loginData = new URLSearchParams({ UserName: username, Password: password });
 
-
-async function getlesion(username, password) {
-
-  const loginData = new URLSearchParams({
-    UserName: username,
-    Password: password,
-  });
-
-  const loginResponse = await fetchWithCookies('https://app.moiashkola.ua/', {
+  const loginRes = await fetchWithCookies('https://app.moiashkola.ua/', {
     method: 'POST',
     body: loginData.toString(),
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-      'Accept-Encoding': 'gzip, deflate, br, zstd',
-      'Accept-Language': 'uk-UA,uk;q=0.9,ru-RU;q=0.8,ru;q=0.7,en-US;q=0.6,en;q=0.5',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache',
-      'Origin': 'https://app.moiashkola.ua',
-      'Referer': 'https://app.moiashkola.ua/',
-      'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'same-origin',
-      'Sec-Fetch-User': '?1',
-      'Sec-CH-UA': '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
-      'Sec-CH-UA-Mobile': '?0',
-      'Sec-CH-UA-Platform': '"macOS"',
-    },
-    redirect: 'follow',
-  });
-  
-
- const protectedPage = await fetchWithCookies('https://app.moiashkola.ua/TvarkarascioIrasas/MokinioTvarkarastis', {
-    headers: {
       'User-Agent': 'Mozilla/5.0',
-    }
+    },
+    redirect: 'manual',
   });
-  const protectedHtml = await protectedPage.text();
-  console.log(protectedHtml)
-  const $ = cheerio.load(protectedHtml);
+
+  if (loginRes.status === 302 || loginRes.status === 303) {
+    const location = loginRes.headers.get('location');
+    if (location) {
+      await fetchWithCookies(`https://app.moiashkola.ua${location}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      });
+    }
+  }
+}
+
+// === РОЗКЛАД ===
+async function getlesion(username, password) {
+  await loginWithRedirect(username, password);
+
+  const page = await fetchWithCookies('https://app.moiashkola.ua/TvarkarascioIrasas/MokinioTvarkarastis', {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+  });
+
+  const html = await page.text();
+  const $ = cheerio.load(html);
   const results = [];
 
   $('tbody.bg-white').each((_, tbody) => {
-    const ef = [];
-
+    const day = [];
     $(tbody).find('tr').each((_, row) => {
       const cells = $(row).find('td');
       if (cells.length >= 5) {
         const time = $(cells[2]).text().trim();
         const urok = $(cells[4]).text().trim();
-        ef.push({ urok, time });
+        day.push({ urok, time });
       }
     });
-
-    results.push(ef);
+    results.push(day);
   });
-  
+
   return results;
-
-
 }
 
-
+// === ПРОФІЛЬ ===
 async function getprofil(username, password) {
+  await loginWithRedirect(username, password);
 
-  const loginData = new URLSearchParams({
-    UserName: username,
-    Password: password,
+  const page = await fetchWithCookies('https://app.moiashkola.ua/Profilis', {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
   });
 
-  const loginResponse = await fetchWithCookies('https://app.moiashkola.ua/', {
-    method: 'POST',
-    body: loginData.toString(),
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-      'Accept-Encoding': 'gzip, deflate, br, zstd',
-      'Accept-Language': 'uk-UA,uk;q=0.9,ru-RU;q=0.8,ru;q=0.7,en-US;q=0.6,en;q=0.5',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache',
-      'Origin': 'https://app.moiashkola.ua',
-      'Referer': 'https://app.moiashkola.ua/',
-      'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'same-origin',
-      'Sec-Fetch-User': '?1',
-      'Sec-CH-UA': '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
-      'Sec-CH-UA-Mobile': '?0',
-      'Sec-CH-UA-Platform': '"macOS"',
-    },
-    redirect: 'follow',
-  });
-  
-
- const protectedPage = await fetchWithCookies('https://app.moiashkola.ua/Profilis', {
-    headers: {
-      'User-Agent': 'Mozilla/5.0',
-    }
-  });
-  const protectedHtml = await protectedPage.text();
-    console.log(protectedHtml)
-  const $ = cheerio.load(protectedHtml);
+  const html = await page.text();
+  const $ = cheerio.load(html);
   const result = [];
-  $('h2').each((i, el) => {
+
+  $('h2, span, i').each((i, el) => {
     result.push($(el).text().trim());
   });
-  $('span').each((i, el) => {
-    result.push($(el).text().trim());
-  });
-  $('i').each((i, el) => {
-    result.push($(el).text().trim());
-  });
+
   return result;
-
-
 }
 
-
-
-
-
-
+// === Д/З ===
 async function gethomework(username, password) {
+  await loginWithRedirect(username, password);
 
-  const loginData = new URLSearchParams({
-    UserName: username,
-    Password: password,
-  });
+  const baseUrl = 'https://app.moiashkola.ua/odata/NamuDarbaiOData';
 
-  const loginResponse = await fetchWithCookies('https://app.moiashkola.ua/', {
-    method: 'POST',
-    body: loginData.toString(),
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-      'Accept-Encoding': 'gzip, deflate, br, zstd',
-      'Accept-Language': 'uk-UA,uk;q=0.9,ru-RU;q=0.8,ru;q=0.7,en-US;q=0.6,en;q=0.5',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache',
-      'Origin': 'https://app.moiashkola.ua',
-      'Referer': 'https://app.moiashkola.ua/',
-      'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'same-origin',
-      'Sec-Fetch-User': '?1',
-      'Sec-CH-UA': '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
-      'Sec-CH-UA-Mobile': '?0',
-      'Sec-CH-UA-Platform': '"macOS"',
-    },
-    redirect: 'follow',
-  });
-  
-
-const baseUrl = 'https://app.moiashkola.ua/odata/NamuDarbaiOData';
-
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() );
-
-  const yyyy = tomorrow.getFullYear();
-  const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
-  const dd = String(tomorrow.getDate()).padStart(2, '0');
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
   const dateStr = `${yyyy}-${mm}-${dd}T21:00:00+00:00`;
-  const params = [
-    `%24format=json`,
-    `%24top=30`,
-    `%24filter=AtliktiIki%20eq%20${encodeURIComponent(dateStr)}`,
-    `%24count=true`
-  ];
 
-  const url = `${baseUrl}?${params.join('&')}`;
-  console.log(url)
+  const url = `${baseUrl}?$format=json&$top=30&$filter=AtliktiIki eq ${encodeURIComponent(dateStr)}&$count=true`;
 
- const protectedPage = await fetchWithCookies(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0',
-    }
+  const response = await fetchWithCookies(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
   });
-  const protectedHtml = await protectedPage.text();
-  const homeworks = JSON.parse(protectedHtml);
-  console.log(homeworks)
-  return homeworks
+
+  const data = await response.text();
+  return JSON.parse(data);
 }
 
-
+// === АНАЛІТИКА / ОЦІНКИ ===
 async function loginAndFetchData(username, password) {
-  const loginData = new URLSearchParams({
-    UserName: username,
-    Password: password,
+  await loginWithRedirect(username, password);
+
+  const page = await fetchWithCookies('https://app.moiashkola.ua/Analitika', {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
   });
 
-  const loginResponse = await fetchWithCookies('https://app.moiashkola.ua/', {
-    method: 'POST',
-    body: loginData.toString(),
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-      'Accept-Encoding': 'gzip, deflate, br, zstd',
-      'Accept-Language': 'uk-UA,uk;q=0.9,ru-RU;q=0.8,ru;q=0.7,en-US;q=0.6,en;q=0.5',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache',
-      'Origin': 'https://app.moiashkola.ua',
-      'Referer': 'https://app.moiashkola.ua/',
-      'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'same-origin',
-      'Sec-Fetch-User': '?1',
-      'Sec-CH-UA': '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
-      'Sec-CH-UA-Mobile': '?0',
-      'Sec-CH-UA-Platform': '"macOS"',
-    },
-    redirect: 'follow',
-  });
-  
-  const protectedPage = await fetchWithCookies('https://app.moiashkola.ua/Analitika', {
-    headers: {
-      'User-Agent': 'Mozilla/5.0',
-    }
-  });
-
-
-  const protectedHtml = await protectedPage.text();
-    console.log(protectedHtml)
-  const $ = cheerio.load(protectedHtml);
+  const html = await page.text();
+  const $ = cheerio.load(html);
   const spans = [];
+
   $('span').each((i, el) => {
     spans.push($(el).text().trim());
   });
+
   return spans;
 }
 
+// === API ===
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Потрібні username та password' });
-    }
-
+    if (!username || !password) return res.status(400).json({ error: 'Потрібні username та password' });
     const grades = await loginAndFetchData(username, password);
     res.json(grades);
   } catch (error) {
@@ -274,16 +137,13 @@ app.post('/api/login', async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
 app.post('/api/domash', async (req, res) => {
   try {
     const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Потрібні username та password' });
-    }
-
-    const grades = await gethomework(username, password);
-    res.json(grades);
+    if (!username || !password) return res.status(400).json({ error: 'Потрібні username та password' });
+    const data = await gethomework(username, password);
+    res.json(data);
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
@@ -293,13 +153,9 @@ app.post('/api/domash', async (req, res) => {
 app.post('/api/rozklad', async (req, res) => {
   try {
     const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Потрібні username та password' });
-    }
-
-    const grades = await getlesion(username, password);
-    res.json(grades);
+    if (!username || !password) return res.status(400).json({ error: 'Потрібні username та password' });
+    const data = await getlesion(username, password);
+    res.json(data);
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
@@ -309,19 +165,16 @@ app.post('/api/rozklad', async (req, res) => {
 app.post('/api/prof', async (req, res) => {
   try {
     const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Потрібні username та password' });
-    }
-
-    const grades = await getprofil(username, password);
-    res.json(grades);
+    if (!username || !password) return res.status(400).json({ error: 'Потрібні username та password' });
+    const data = await getprofil(username, password);
+    res.json(data);
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
+// === СТАРТ СЕРВЕРА ===
 app.listen(PORT, () => {
   console.log(`server started on port ${PORT}`);
 });
